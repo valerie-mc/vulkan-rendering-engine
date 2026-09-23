@@ -101,17 +101,36 @@ set (SHADER_TARGET ${TEMPLATE_NAME}Shader)
 set (SHADERS_DIR ${TEMPLATE_DIR}/shaders)
 set (SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shader.slang")
 set (ENTRY_POINTS -entry vertMain -entry fragMain)
-add_custom_command(OUTPUT ${SHADERS_DIR} COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_DIR})
+
+file(MAKE_DIRECTORY ${SHADERS_DIR})
+
 add_custom_command(
   OUTPUT  ${SHADERS_DIR}/slang.spv
   COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o ${TEMPLATE_DIR}/shaders/slang.spv
   WORKING_DIRECTORY ${SHADERS_DIR}
-  DEPENDS ${SHADERS_DIR} ${SHADER_SOURCES}
+  DEPENDS ${SHADER_SOURCES}
   COMMENT "Compiling Slang Shaders"
   VERBATIM
 )
 add_custom_target(${SHADER_TARGET} DEPENDS ${SHADERS_DIR}/slang.spv)
 add_dependencies(${TEMPLATE_NAME} ${SHADER_TARGET})
+
+# Slang shader (default from tutorial, was causing a warning)
+# set (SHADER_TARGET ${TEMPLATE_NAME}Shader)
+# set (SHADERS_DIR ${TEMPLATE_DIR}/shaders)
+# set (SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shader.slang")
+# set (ENTRY_POINTS -entry vertMain -entry fragMain)
+# add_custom_command(OUTPUT ${SHADERS_DIR} COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_DIR})
+# add_custom_command(
+#   OUTPUT  ${SHADERS_DIR}/slang.spv
+#   COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o ${TEMPLATE_DIR}/shaders/slang.spv
+#   WORKING_DIRECTORY ${SHADERS_DIR}
+#   DEPENDS ${SHADERS_DIR} ${SHADER_SOURCES}
+#   COMMENT "Compiling Slang Shaders"
+#   VERBATIM
+# )
+# add_custom_target(${SHADER_TARGET} DEPENDS ${SHADERS_DIR}/slang.spv)
+# add_dependencies(${TEMPLATE_NAME} ${SHADER_TARGET})
 
 # Assets
 #set (ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../assets/")
