@@ -1,5 +1,11 @@
 cmake_minimum_required (VERSION 3.29)
 
+# For clang
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF) # Be careful of this one, hopefully it doesn't come to get me later (it removes some weird compiler flags that clang doesn't like)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 set (TEMPLATE_NAME "VulkanTutorial")
 
 project (${TEMPLATE_NAME})

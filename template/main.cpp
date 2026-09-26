@@ -1,4 +1,11 @@
-#include <memory>
+// #include <algorithm>
+#include <cstdlib>
+// #include <cstring>
+#include <iostream>
+// #include <memory>
+#include <stdexcept>
+#include <vector>
+
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #	include <vulkan/vulkan_raii.hpp>
 #else
@@ -8,9 +15,6 @@ import vulkan_hpp;
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#include <iostream>
-#include <stdexcept>
-#include <cstdlib>
 
 // Validation Layers
 const std::vector<char const*> validationLayers = {
@@ -41,6 +45,7 @@ class HelloTriangleApplication {
 
     vk::raii::Context context;
     vk::raii::Instance instance = nullptr;
+    vk::raii::PhysicalDevice physicalDevice = nullptr;
     vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
 
     void initWindow() {
@@ -55,8 +60,21 @@ class HelloTriangleApplication {
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
+        pickPhysicalDevice();
     }
 
+    void pickPhysicalDevice() {
+        auto physicalDevices = instance.enumeratePhysicalDevices();
+
+        if (physicalDevices.empty()) {
+            throw std::runtime_error("Failed to find a GPU with Vulkan support.");
+        }
+
+        for (auto physicalDevice : physicalDevices) {
+            break;
+        }
+    }
+    
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
@@ -88,6 +106,7 @@ class HelloTriangleApplication {
             .apiVersion         = vk::ApiVersion14,
         };
 
+        
         vk::InstanceCreateInfo createInfo {
             .pApplicationInfo        = &appInfo,
             .enabledLayerCount       = static_cast<uint32_t>(requiredLayers.size()),
@@ -185,8 +204,8 @@ class HelloTriangleApplication {
 
         // Currently not used, see `https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/00_Setup/02_Validation_layers.html#_message_callback` for more info.
         // You need to modify `this.setupDebugMessenger` to be called for these flags if you want to use them.
-        if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose ||
-            severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo);
+        // if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose ||
+        //     severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo);
 
         return vk::False;
     }
