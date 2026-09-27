@@ -48,13 +48,16 @@ class HelloTriangleApplication {
     vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
 
     vk::raii::PhysicalDevice physicalDevice = nullptr;
+    vk::raii::Device device = nullptr;
+
+    vk::raii::Queue graphicsQueue = nullptr;
+    
     // Used to determine if a GPU has our required extensions
     std::vector<const char*> requiredDeviceExtension = {
         vk::KHRSwapchainExtensionName,
     };
 
-
-    // Init and primary functions
+    //* Conductor functions
     void initWindow() {
         glfwInit();
 
@@ -68,6 +71,7 @@ class HelloTriangleApplication {
         createInstance();
         setupDebugMessenger();
         pickPhysicalDevice();
+        createLogicalDevice();
     }
     
     void mainLoop() {
@@ -82,7 +86,7 @@ class HelloTriangleApplication {
         glfwTerminate();
     }
 
-    // Helper functions
+    //* Init functions
     void createInstance() {
         // Get the required layers.
         std::vector<char const*> requiredLayers;
@@ -113,59 +117,6 @@ class HelloTriangleApplication {
         instance = vk::raii::Instance(context, createInfo);
     }
 
-    // Checks if the required layers are supported by the Vulkan implementation.
-    // Throws an error if they are not.
-    void checkValidationLayersSupported(std::vector<const char*> requiredLayers) {
-        auto layers = context.enumerateInstanceLayerProperties();
-        auto unsupportedLayerIt = std::ranges::find_if(
-            requiredLayers,
-            [&layers](auto const &requiredLayer) {
-                return std::ranges::none_of(
-                    layers,
-                    [requiredLayer](auto const &layer) {
-                        return strcmp(layer.layerName, requiredLayer) == 0; 
-                    });
-            });
-        
-        if (unsupportedLayerIt != requiredLayers.end()) {
-            throw std::runtime_error("Required layer not supported: " + std::string(*unsupportedLayerIt));
-        }
-    }
-
-    // Returns a vector of pointers to strings of the required instance extensions.
-    std::vector<const char*> getRequiredInstanceExtensions() {
-        uint32_t glfwExtensionCount = 0;
-        auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-
-        // Essentially converts the glfwExtensions: char** to a vector<const char*>
-        std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-
-        if (enableValidationLayers) {
-            extensions.push_back(vk::EXTDebugUtilsExtensionName);
-        }
-
-        return extensions;
-    }
-
-    // Checks if the required extensions are supported by the Vulkan implementation.
-    // Throws an error if they are not.
-    void checkExtensionsSupported(std::vector<const char*> requiredExtensions) {
-        auto extensionProperties = context.enumerateInstanceExtensionProperties();
-        auto unsupportedPropertyIt =
-            std::ranges::find_if(
-                requiredExtensions,
-                [&extensionProperties](auto const &requiredExtension) {
-                    return std::ranges::none_of(extensionProperties,
-                    [requiredExtension](auto const &extensionProperty) {
-                        return strcmp(extensionProperty.extensionName, requiredExtension) == 0;
-                    });
-                });
-        
-        if (unsupportedPropertyIt != requiredExtensions.end()) {
-            throw std::runtime_error("Required extension not supported: " + std::string(*unsupportedPropertyIt));
-        }
-    }
-
     void setupDebugMessenger() {
         if (!enableValidationLayers) return;
 
@@ -178,30 +129,10 @@ class HelloTriangleApplication {
         vk::DebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCreateInfoEXT {
             .messageSeverity = severityFlags,
             .messageType     = messageTypeFlags,
-            .pfnUserCallback = &debugCallback
+            .pfnUserCallback = &debugCallback,
         };
 
         debugMessenger = instance.createDebugUtilsMessengerEXT(debugUtilsMessengerCreateInfoEXT);
-    }
-
-    // Debug callback fn for validation layers.
-    static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
-        vk::DebugUtilsMessageSeverityFlagBitsEXT       severity,
-        vk::DebugUtilsMessageTypeFlagsEXT              type,
-        const vk::DebugUtilsMessengerCallbackDataEXT * pCallbackData,
-        void *                                         pUserData) 
-    {
-        if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning ||
-            severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError) {
-            std::cerr << "validation layer: type " << to_string(type) << " msg: " << pCallbackData->pMessage << std::endl;
-        }
-
-        // Currently not used, see `https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/00_Setup/02_Validation_layers.html#_message_callback` for more info.
-        // You need to modify `this.setupDebugMessenger` to be called for these flags if you want to use them.
-        // if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose ||
-        //     severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo);
-
-        return vk::False;
     }
 
     void pickPhysicalDevice() {
@@ -258,6 +189,124 @@ class HelloTriangleApplication {
 
         // Return true if the physicalDevice meets all the criteria
         return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
+    }
+
+    void createLogicalDevice() {
+        std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
+
+        auto graphicsQueueFamilyProperty = std::ranges::find_if(
+            queueFamilyProperties,
+            [](auto const &qfp) {
+                return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);
+            });
+        
+        auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
+        float queuePriority = 0.5f;
+        vk::DeviceQueueCreateInfo deviceQueueCreateInfo {
+            .queueFamilyIndex = graphicsIndex,
+            .queueCount = 1,
+            .pQueuePriorities = &queuePriority,
+        };
+        
+        // Currently, we don't need any more deviceFeatures so we'll just define it and leave it. We'll come back to it later.
+        vk::PhysicalDeviceFeatures deviceFeatures;
+
+        // Create a chain of feature structures
+        vk::StructureChain<vk::PhysicalDeviceFeatures2,
+                        vk::PhysicalDeviceVulkan11Features,
+                        vk::PhysicalDeviceVulkan13Features,
+                        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
+            featureChain = {
+                {},                             // vk::PhysicalDeviceFeatures2 (empty for now)
+                {.shaderDrawParameters = true}, // Enable shader draw parameters from Vulkan 1.1
+                {.dynamicRendering = true},     // Enable dynamic rendering from Vulkan 1.3
+                {.extendedDynamicState = true}, // Enable extended dynamic state from the extension
+            };
+
+        vk::DeviceCreateInfo deviceCreateInfo {
+            .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
+            .queueCreateInfoCount = 1,
+            .pQueueCreateInfos = &deviceQueueCreateInfo,
+            .enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size()),
+            .ppEnabledExtensionNames = requiredDeviceExtension.data()
+        };
+
+        device = vk::raii::Device(physicalDevice, deviceCreateInfo);
+        graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+    }
+
+    //* Helper functions
+    // Returns a vector of pointers to strings of the required instance extensions.
+    std::vector<const char*> getRequiredInstanceExtensions() {
+        uint32_t glfwExtensionCount = 0;
+        auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+        // Essentially converts the glfwExtensions: char** to a vector<const char*>
+        std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+
+        if (enableValidationLayers) {
+            extensions.push_back(vk::EXTDebugUtilsExtensionName);
+        }
+
+        return extensions;
+    }
+
+    // Checks if the required extensions are supported by the Vulkan implementation.
+    // Throws an error if they are not.
+    void checkExtensionsSupported(std::vector<const char*> requiredExtensions) {
+        auto extensionProperties = context.enumerateInstanceExtensionProperties();
+        auto unsupportedPropertyIt =
+            std::ranges::find_if(
+                requiredExtensions,
+                [&extensionProperties](auto const &requiredExtension) {
+                    return std::ranges::none_of(extensionProperties,
+                    [requiredExtension](auto const &extensionProperty) {
+                        return strcmp(extensionProperty.extensionName, requiredExtension) == 0;
+                    });
+                });
+        
+        if (unsupportedPropertyIt != requiredExtensions.end()) {
+            throw std::runtime_error("Required extension not supported: " + std::string(*unsupportedPropertyIt));
+        }
+    }
+
+    // Checks if the required layers are supported by the Vulkan implementation.
+    // Throws an error if they are not.
+    void checkValidationLayersSupported(std::vector<const char*> requiredLayers) {
+        auto layers = context.enumerateInstanceLayerProperties();
+        auto unsupportedLayerIt = std::ranges::find_if(
+            requiredLayers,
+            [&layers](auto const &requiredLayer) {
+                return std::ranges::none_of(
+                    layers,
+                    [requiredLayer](auto const &layer) {
+                        return strcmp(layer.layerName, requiredLayer) == 0; 
+                    });
+            });
+        
+        if (unsupportedLayerIt != requiredLayers.end()) {
+            throw std::runtime_error("Required layer not supported: " + std::string(*unsupportedLayerIt));
+        }
+    }
+
+    // Debug callback fn for validation layers.
+    static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
+        vk::DebugUtilsMessageSeverityFlagBitsEXT       severity,
+        vk::DebugUtilsMessageTypeFlagsEXT              type,
+        const vk::DebugUtilsMessengerCallbackDataEXT * pCallbackData,
+        void *                                         pUserData) 
+    {
+        if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning ||
+            severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError) {
+            std::cerr << "validation layer: type " << to_string(type) << " msg: " << pCallbackData->pMessage << std::endl;
+        }
+
+        // Currently not used, see `https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/00_Setup/02_Validation_layers.html#_message_callback` for more info.
+        // You need to modify `this.setupDebugMessenger` to be called for these flags if you want to use them.
+        // if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose ||
+        //     severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo);
+
+        return vk::False;
     }
 };
 
