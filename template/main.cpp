@@ -1,6 +1,6 @@
 // #include <algorithm>
 #include <cstdlib>
-// #include <cstring>
+#include <cstring>
 #include <iostream>
 // #include <memory>
 #include <stdexcept>
@@ -46,6 +46,7 @@ class HelloTriangleApplication {
     vk::raii::Context context;
     vk::raii::Instance instance = nullptr;
     vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
+    vk::raii::SurfaceKHR surface = nullptr;
 
     vk::raii::PhysicalDevice physicalDevice = nullptr;
     vk::raii::Device device = nullptr;
@@ -70,6 +71,7 @@ class HelloTriangleApplication {
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
+        createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
     }
@@ -135,6 +137,14 @@ class HelloTriangleApplication {
         debugMessenger = instance.createDebugUtilsMessengerEXT(debugUtilsMessengerCreateInfoEXT);
     }
 
+    void createSurface() {
+        VkSurfaceKHR _surface; // This is a C API object so we promoted it to a C++ wrapper instead of using it directly
+        if (glfwCreateWindowSurface(*instance, window, nullptr, &_surface) != 0) {
+            throw std::runtime_error("failed to create window surface!");
+        }
+        surface = vk::raii::SurfaceKHR(instance, _surface);
+    }
+
     void pickPhysicalDevice() {
         auto physicalDevices = instance.enumeratePhysicalDevices();
 
@@ -151,59 +161,27 @@ class HelloTriangleApplication {
         physicalDevice = *devIter;
     }
 
-    bool isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) {
-        // Check if the physicalDevice supports the Vulkan 1.3 API version
-        bool supportsVulkan1_3 = physicalDevice.getProperties().apiVersion >= vk::ApiVersion13;
-
-        // Check if any of the queue families support graphics operations
-        auto queueFamilies = physicalDevice.getQueueFamilyProperties();
-        bool supportsGraphics = std::ranges::any_of(
-            queueFamilies,
-            [](auto const &qfp) {
-                return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);
-            });
-
-        // Check if all required physicalDevice extensions are available
-        auto availableDeviceExtensions = physicalDevice.enumerateDeviceExtensionProperties();
-        bool supportsAllRequiredExtensions = std::ranges::all_of(
-            requiredDeviceExtension,
-            [&availableDeviceExtensions](auto const &requiredDeviceExtension) {
-                return std::ranges::any_of(
-                    availableDeviceExtensions,
-                    [requiredDeviceExtension](auto const &availableDeviceExtension) {
-                        return strcmp(availableDeviceExtension.extensionName, requiredDeviceExtension) == 0;
-                    });
-            });
-
-        // Check if the physicalDevice supports the required features:
-        //   shader draw parameters, dynamic rendering, and extended dynamic state
-        auto features = physicalDevice.template getFeatures2<
-            vk::PhysicalDeviceFeatures2,
-            vk::PhysicalDeviceVulkan11Features,
-            vk::PhysicalDeviceVulkan13Features,
-            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
-        bool supportsRequiredFeatures = 
-            features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
-            features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
-            features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
-
-        // Return true if the physicalDevice meets all the criteria
-        return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
-    }
-
     void createLogicalDevice() {
+        // Find the index of the first queue family that supports graphics
         std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
 
-        auto graphicsQueueFamilyProperty = std::ranges::find_if(
-            queueFamilyProperties,
-            [](auto const &qfp) {
-                return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);
-            });
-        
-        auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
+        uint32_t queueIndex = ~0; // UINT32_MAX
+        for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); ++qfpIndex) {
+            if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
+                    physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface)) {
+                // found a queue family that supports both graphics and present
+                queueIndex = qfpIndex;
+                break;
+            }
+        }
+
+        if (queueIndex == ~0) {
+            throw std::runtime_error("Could not find a queue for graphics and present -> terminating");
+        }
+
         float queuePriority = 0.5f;
         vk::DeviceQueueCreateInfo deviceQueueCreateInfo {
-            .queueFamilyIndex = graphicsIndex,
+            .queueFamilyIndex = queueIndex,
             .queueCount = 1,
             .pQueuePriorities = &queuePriority,
         };
@@ -232,7 +210,7 @@ class HelloTriangleApplication {
         };
 
         device = vk::raii::Device(physicalDevice, deviceCreateInfo);
-        graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+        graphicsQueue = vk::raii::Queue(device, queueIndex, 0);
     }
 
     //* Helper functions
@@ -287,6 +265,46 @@ class HelloTriangleApplication {
         if (unsupportedLayerIt != requiredLayers.end()) {
             throw std::runtime_error("Required layer not supported: " + std::string(*unsupportedLayerIt));
         }
+    }
+
+    bool isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) {
+        // Check if the physicalDevice supports the Vulkan 1.3 API version
+        bool supportsVulkan1_3 = physicalDevice.getProperties().apiVersion >= vk::ApiVersion13;
+
+        // Check if any of the queue families support graphics operations
+        auto queueFamilies = physicalDevice.getQueueFamilyProperties();
+        bool supportsGraphics = std::ranges::any_of(
+            queueFamilies,
+            [](auto const &qfp) {
+                return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);
+            });
+
+        // Check if all required physicalDevice extensions are available
+        auto availableDeviceExtensions = physicalDevice.enumerateDeviceExtensionProperties();
+        bool supportsAllRequiredExtensions = std::ranges::all_of(
+            requiredDeviceExtension,
+            [&availableDeviceExtensions](auto const &requiredDeviceExtension) {
+                return std::ranges::any_of(
+                    availableDeviceExtensions,
+                    [requiredDeviceExtension](auto const &availableDeviceExtension) {
+                        return strcmp(availableDeviceExtension.extensionName, requiredDeviceExtension) == 0;
+                    });
+            });
+
+        // Check if the physicalDevice supports the required features:
+        //   shader draw parameters, dynamic rendering, and extended dynamic state
+        auto features = physicalDevice.template getFeatures2<
+            vk::PhysicalDeviceFeatures2,
+            vk::PhysicalDeviceVulkan11Features,
+            vk::PhysicalDeviceVulkan13Features,
+            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
+        bool supportsRequiredFeatures = 
+            features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
+            features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
+            features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
+
+        // Return true if the physicalDevice meets all the criteria
+        return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
     }
 
     // Debug callback fn for validation layers.
