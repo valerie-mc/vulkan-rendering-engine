@@ -72,3 +72,11 @@ Testing/
 .vscode
 .vscode/*
 .vscode/settings.json
+
+# shell scripts
+build.bat
+execute.bat
+full-rebuild.bat
+build.sh
+execute.sh
+full-rebuild.sh
