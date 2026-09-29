@@ -76,8 +76,8 @@ Testing/
 # shell scripts
 build.bat
 execute.bat
-clean_rebuild.bat
+clean_build.bat
 
 build.sh
 execute.sh
-clean_rebuild.sh
+clean_build.sh
