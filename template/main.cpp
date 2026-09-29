@@ -56,6 +56,7 @@ class HelloTriangleApplication {
     std::vector<vk::Image>           swapChainImages;
 	vk::Extent2D                     swapChainExtent;
     vk::SurfaceFormatKHR             swapChainSurfaceFormat;
+    std::vector<vk::raii::ImageView> swapChainImageViews;
     
     // Used to determine if a GPU has our required extensions
     std::vector<const char*> requiredDeviceExtension = {
@@ -79,6 +80,7 @@ class HelloTriangleApplication {
         pickPhysicalDevice();
         createLogicalDevice();
         createSwapChain();
+        createImageViews();
     }
     
     void mainLoop() {
@@ -241,11 +243,26 @@ class HelloTriangleApplication {
             .preTransform     = surfaceCapabilities.currentTransform,
             .compositeAlpha   = vk::CompositeAlphaFlagBitsKHR::eOpaque,
             .presentMode      = presentMode,
-            .clipped          = true
+            .clipped          = true,
         };
 
         swapChain = vk::raii::SwapchainKHR(device, swapChainCreateInfo);
 		swapChainImages = swapChain.getImages();
+    }
+
+    void createImageViews() {
+        assert(swapChainImageViews.empty());
+
+        vk::ImageViewCreateInfo imageViewCreateInfo {
+            .viewType         = vk::ImageViewType::e2D,
+            .format           = swapChainSurfaceFormat.format,
+            .subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 },
+        };
+
+        for (auto &image : swapChainImages) {
+            imageViewCreateInfo.image = image;
+            swapChainImageViews.emplace_back(device, imageViewCreateInfo);
+        }
     }
 
     //* Helper functions
