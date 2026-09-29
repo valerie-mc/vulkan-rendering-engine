@@ -11,8 +11,7 @@ struct UniformBuffer {
 };
 ConstantBuffer<UniformBuffer> ubo;
 
-struct VSOutput
-{
+struct VSOutput {
     float4 pos : SV_Position;
     float3 fragColor;
     float2 fragTexCoord;
