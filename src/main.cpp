@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 // #include <memory>
 #include <stdexcept>
@@ -58,6 +59,8 @@ class HelloTriangleApplication {
     vk::SurfaceFormatKHR             swapChainSurfaceFormat;
     std::vector<vk::raii::ImageView> swapChainImageViews;
     
+    vk::raii::PipelineLayout         pipelineLayout = nullptr;
+
     // Used to determine if a GPU has our required extensions
     std::vector<const char*> requiredDeviceExtension = {
         vk::KHRSwapchainExtensionName,
@@ -267,7 +270,77 @@ class HelloTriangleApplication {
     }
 
     void createGraphicsPipeline() {
-        
+        static const std::string SHADER_DIR = "build/VulkanEngine/shaders/slang.spv";
+
+        // We don't need to keep the buffer after creating the shader module nor
+        // the shader module after the pipeline is created
+        vk::raii::ShaderModule shaderModule = createShaderModule(readFile(SHADER_DIR));
+
+        vk::PipelineShaderStageCreateInfo vertShaderStageInfo {
+            .stage = vk::ShaderStageFlagBits::eVertex,
+            .module = shaderModule,
+            .pName = "vertMain",
+        };
+        vk::PipelineShaderStageCreateInfo fragShaderStageInfo {
+            .stage = vk::ShaderStageFlagBits::eFragment,
+            .module = shaderModule,
+            .pName = "fragMain",
+        };
+        vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+        // The following configuration is for fixed functions in the graphics pipeline
+
+        // Leave empty for now
+        vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
+        vk::Viewport viewport{
+            0.0f, 0.0f,
+            static_cast<float>(swapChainExtent.width), static_cast<float>(swapChainExtent.height),
+            0.0f, 1.0f
+        };
+        vk::Rect2D scissor{vk::Offset2D{ 0, 0 }, swapChainExtent};
+        vk::PipelineViewportStateCreateInfo viewportState {
+            .viewportCount = 1, .pViewports = &viewport,
+            .scissorCount = 1,  .pScissors = &scissor,
+        };
+
+        vk::PipelineRasterizationStateCreateInfo rasterizer {
+            .depthClampEnable        = vk::False,
+            .rasterizerDiscardEnable = vk::False,
+            .polygonMode             = vk::PolygonMode::eFill,
+            .cullMode                = vk::CullModeFlagBits::eBack,
+            .frontFace               = vk::FrontFace::eClockwise,
+            .depthBiasEnable         = vk::False,
+            .lineWidth               = 1.0f,
+        };
+
+        // We'll revist this later
+        vk::PipelineMultisampleStateCreateInfo multisampling {
+            .rasterizationSamples = vk::SampleCountFlagBits::e1,
+            .sampleShadingEnable = vk::False,
+        };
+
+        vk::PipelineColorBlendAttachmentState colorBlendAttachment {
+		    .blendEnable    = vk::False,
+		    .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | 
+                              vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
+        };
+
+		vk::PipelineColorBlendStateCreateInfo colorBlending {
+		    .logicOpEnable = vk::False,
+            .logicOp = vk::LogicOp::eCopy,
+            .attachmentCount = 1,
+            .pAttachments = &colorBlendAttachment,
+        };
+
+		std::vector<vk::DynamicState> dynamicStates = {vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+		vk::PipelineDynamicStateCreateInfo dynamicState {
+            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+            .pDynamicStates = dynamicStates.data()
+        };
+
+        // Used to specify the values of uniform values in shaders (not used yet)
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{.setLayoutCount = 0, .pushConstantRangeCount = 0};
+        pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
     }
 
     //* Helper functions
@@ -406,7 +479,36 @@ class HelloTriangleApplication {
                 return vk::PresentModeKHR::eMailbox == value; 
             }) ? vk::PresentModeKHR::eMailbox : vk::PresentModeKHR::eFifo;
     }
+
+    [[nodiscard]] 
+    vk::raii::ShaderModule createShaderModule(const std::vector<char>& code) const {
+        vk::ShaderModuleCreateInfo createInfo {
+            .codeSize = code.size() * sizeof(char),
+            .pCode = reinterpret_cast<const uint32_t*>(code.data()),
+        };
+
+        vk::raii::ShaderModule shaderModule{device, createInfo};
+        return shaderModule;
+    }
+
     
+    static std::vector<char> readFile(const std::string& filename) {
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+        if (!file.is_open()) {
+            throw std::runtime_error("failed to open file!");
+        }
+
+        // We start reading at the end (ios::ate) and use tellg to determine the size of the file
+        std::vector<char> buffer(file.tellg());
+
+        file.seekg(0, std::ios::beg);
+        file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        file.close();
+
+        return buffer;
+    }
+
     // Debug callback fn for validation layers.
     static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
         vk::DebugUtilsMessageSeverityFlagBitsEXT       severity,
