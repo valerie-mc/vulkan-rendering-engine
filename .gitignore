@@ -76,10 +76,8 @@ Testing/
 # shell scripts
 build.bat
 execute.bat
-full-rebuild.bat
-compile-shaders.bat
+clean_rebuild.bat
 
 build.sh
 execute.sh
-full-rebuild.sh
-compile-shaders.sh
+clean_rebuild.sh
