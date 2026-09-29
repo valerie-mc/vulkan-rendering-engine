@@ -6,9 +6,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set (TEMPLATE_NAME "VulkanTutorial")
+set (ENGINE_NAME "VulkanEngine")
 
-project (${TEMPLATE_NAME})
+project (${ENGINE_NAME})
 
 # Add option to enable/disable C++ 20 module
 option(ENABLE_CPP20_MODULE "Enable C++ 20 module support for Vulkan" OFF)
@@ -80,89 +80,93 @@ set(STB_INCLUDEDIR ${stb_INCLUDE_DIRS})
 
 find_program(SLANGC_EXECUTABLE slangc HINTS $ENV{VULKAN_SDK}/bin REQUIRED)
 
-set(TEMPLATE_DIR ${CMAKE_BINARY_DIR}/${TEMPLATE_NAME})
+set(ENGINE_DIR ${CMAKE_BINARY_DIR}/${ENGINE_NAME})
 
-add_executable (${TEMPLATE_NAME} main.cpp)
-set_target_properties (${TEMPLATE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TEMPLATE_DIR})
-set_target_properties (${TEMPLATE_NAME} PROPERTIES CXX_STANDARD 20)
-target_link_libraries (${TEMPLATE_NAME} Vulkan::cppm glfw)
-target_include_directories (${TEMPLATE_NAME} PRIVATE ${STB_INCLUDEDIR})
+add_executable (${ENGINE_NAME} main.cpp)
+set_target_properties (${ENGINE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${ENGINE_DIR})
+set_target_properties (${ENGINE_NAME} PROPERTIES CXX_STANDARD 20)
+target_link_libraries (${ENGINE_NAME} Vulkan::cppm glfw)
+target_include_directories (${ENGINE_NAME} PRIVATE ${STB_INCLUDEDIR})
 
 # Add compile definition if C++ 20 module is enabled
 if(ENABLE_CPP20_MODULE)
-  target_compile_definitions(${TEMPLATE_NAME} PRIVATE USE_CPP20_MODULES=1)
+  target_compile_definitions(${ENGINE_NAME} PRIVATE USE_CPP20_MODULES=1)
 endif()
 
 # Define VULKAN_HPP_HANDLE_ERROR_OUT_OF_DATE_AS_SUCCESS to treat VK_ERROR_OUT_OF_DATE_KHR as a success code
-target_compile_definitions(${TEMPLATE_NAME} PRIVATE "VULKAN_HPP_HANDLE_ERROR_OUT_OF_DATE_AS_SUCCESS" )
+target_compile_definitions(${ENGINE_NAME} PRIVATE "VULKAN_HPP_HANDLE_ERROR_OUT_OF_DATE_AS_SUCCESS" )
 
 if(WIN32)
   if(${CMAKE_GENERATOR} MATCHES "Visual Studio.*")
-    set_target_properties(${TEMPLATE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${TEMPLATE_DIR})
+    set_target_properties(${ENGINE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${ENGINE_DIR})
   endif()
 endif()
 
-# Slang shader
-set (SHADER_TARGET ${TEMPLATE_NAME}Shader)
-set (SHADERS_DIR ${TEMPLATE_DIR}/shaders)
-set (SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader.slang") # Dir for "shader.slang"
-set (ENTRY_POINTS -entry vertMain -entry fragMain)
 
-file(MAKE_DIRECTORY ${SHADERS_DIR})
+# Slang shader compiler
+function (add_slang_shader_target TARGET)
+  cmake_parse_arguments ("SHADER" "" "" "SOURCES" ${ARGN})
+#   set (SHADER_TARGET ${ENGINE_NAME}Shader)
+  set (SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader.slang")
+  set (SHADERS_DIR ${CMAKE_CURRENT_LIST_DIR}/shaders)
+  set (ENTRY_POINTS -entry vertMain -entry fragMain)
+  add_custom_command (
+          OUTPUT ${SHADERS_DIR}
+          COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_DIR}
+  )
+  add_custom_command (
+          OUTPUT  ${SHADERS_DIR}/slang.spv
+          COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o shaders/slang.spv
+          WORKING_DIRECTORY ${SHADERS_DIR}
+          DEPENDS ${SHADERS_DIR} ${SHADER_SOURCES}
+          COMMENT "Compiling Slang Shaders"
+          VERBATIM
+  )
+  add_custom_target (${TARGET} DEPENDS ${SHADERS_DIR}/slang.spv)
+endfunction()
 
-add_custom_command(
-  OUTPUT  ${SHADERS_DIR}/slang.spv
-  COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o ${TEMPLATE_DIR}/shaders/slang.spv
-  WORKING_DIRECTORY ${SHADERS_DIR}
-  DEPENDS ${SHADER_SOURCES}
-  COMMENT "Compiling Slang Shaders"
-  VERBATIM
-)
-add_custom_target(${SHADER_TARGET} DEPENDS ${SHADERS_DIR}/slang.spv)
-add_dependencies(${TEMPLATE_NAME} ${SHADER_TARGET})
+set (SHADER_TARGET ${ENGINE_NAME}Shaders)
+add_slang_shader_target(${SHADER_TARGET} SOURCES ${SHADER_SLANG_SOURCES})
+add_dependencies(${ENGINE_NAME} ${SHADER_TARGET})
 
 # Slang shader (default from tutorial, was causing a warning)
-# set (SHADER_TARGET ${TEMPLATE_NAME}Shader)
-# set (SHADERS_DIR ${TEMPLATE_DIR}/shaders)
+# set (SHADER_TARGET ${ENGINE_NAME}Shader)
+# set (SHADERS_DIR ${ENGINE_DIR}/shaders)
 # set (SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shader.slang")
 # set (ENTRY_POINTS -entry vertMain -entry fragMain)
 # add_custom_command(OUTPUT ${SHADERS_DIR} COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_DIR})
 # add_custom_command(
 #   OUTPUT  ${SHADERS_DIR}/slang.spv
-#   COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o ${TEMPLATE_DIR}/shaders/slang.spv
+#   COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o ${ENGINE_DIR}/shaders/slang.spv
 #   WORKING_DIRECTORY ${SHADERS_DIR}
 #   DEPENDS ${SHADERS_DIR} ${SHADER_SOURCES}
 #   COMMENT "Compiling Slang Shaders"
 #   VERBATIM
 # )
 # add_custom_target(${SHADER_TARGET} DEPENDS ${SHADERS_DIR}/slang.spv)
-# add_dependencies(${TEMPLATE_NAME} ${SHADER_TARGET})
+# add_dependencies(${ENGINE_NAME} ${SHADER_TARGET})
 
 # Assets
 #set (ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../assets/")
-#file (COPY ${ASSET_DIR}/viking_room.obj DESTINATION ${TEMPLATE_DIR}/models)
-#file (COPY ${ASSET_DIR}/viking_room.png DESTINATION ${TEMPLATE_DIR}/textures)
+#file (COPY ${ASSET_DIR}/viking_room.obj DESTINATION ${ENGINE_DIR}/models)
+#file (COPY ${ASSET_DIR}/viking_room.png DESTINATION ${ENGINE_DIR}/textures)
 
 
-# Slang shader compile function from "shader modules" section
-# function (add_slang_shader_target TARGET)
-#   cmake_parse_arguments ("SHADER" "" "" "SOURCES" ${ARGN})
-#   set (SHADERS_DIR ${CMAKE_CURRENT_LIST_DIR}/shaders)
-#   set (ENTRY_POINTS -entry vertMain -entry fragMain)
-#   add_custom_command (
-#           OUTPUT ${SHADERS_DIR}
-#           COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_DIR}
-#   )
-#   add_custom_command (
-#           OUTPUT  ${SHADERS_DIR}/slang.spv
-#           COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o slang.spv
-#           WORKING_DIRECTORY ${SHADERS_DIR}
-#           DEPENDS ${SHADERS_DIR} ${SHADER_SOURCES}
-#           COMMENT "Compiling Slang Shaders"
-#           VERBATIM
-#   )
-#   add_custom_target (${TARGET} DEPENDS ${SHADERS_DIR}/slang.spv)
-# endfunction()
+# Slang shader 
+# set (SHADER_TARGET ${ENGINE_NAME}Shader)
+# set (SHADERS_DIR ${ENGINE_DIR}/shaders)
+# set (SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader.slang") # Dir for "shader.slang"
+# set (ENTRY_POINTS -entry vertMain -entry fragMain)
 
-# add_slang_shader_target( foo SOURCES ${SHADER_SLANG_SOURCES})
-# add_dependencies(bar foo)
+# file(MAKE_DIRECTORY ${SHADERS_DIR})
+
+# add_custom_command(
+#   OUTPUT  ${SHADERS_DIR}/slang.spv
+#   COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o ${ENGINE_DIR}/shaders/slang.spv
+#   WORKING_DIRECTORY ${SHADERS_DIR}
+#   DEPENDS ${SHADER_SOURCES}
+#   COMMENT "Compiling Slang Shaders"
+#   VERBATIM
+# )
+# add_custom_target(${SHADER_TARGET} DEPENDS ${SHADERS_DIR}/slang.spv)
+# add_dependencies(${ENGINE_NAME} ${SHADER_TARGET})
