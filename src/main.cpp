@@ -60,6 +60,7 @@ class HelloTriangleApplication {
     std::vector<vk::raii::ImageView> swapChainImageViews;
     
     vk::raii::PipelineLayout         pipelineLayout = nullptr;
+    vk::raii::Pipeline               graphicsPipeline = nullptr;
 
     // Used to determine if a GPU has our required extensions
     std::vector<const char*> requiredDeviceExtension = {
@@ -292,16 +293,8 @@ class HelloTriangleApplication {
 
         // Leave empty for now
         vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
-        vk::Viewport viewport{
-            0.0f, 0.0f,
-            static_cast<float>(swapChainExtent.width), static_cast<float>(swapChainExtent.height),
-            0.0f, 1.0f
-        };
-        vk::Rect2D scissor{vk::Offset2D{ 0, 0 }, swapChainExtent};
-        vk::PipelineViewportStateCreateInfo viewportState {
-            .viewportCount = 1, .pViewports = &viewport,
-            .scissorCount = 1,  .pScissors = &scissor,
-        };
+        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{.topology = vk::PrimitiveTopology::eTriangleList};
+        vk::PipelineViewportStateCreateInfo viewportState{.viewportCount = 1, .scissorCount = 1};
 
         vk::PipelineRasterizationStateCreateInfo rasterizer {
             .depthClampEnable        = vk::False,
@@ -341,6 +334,23 @@ class HelloTriangleApplication {
         // Used to specify the values of uniform values in shaders (not used yet)
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{.setLayoutCount = 0, .pushConstantRangeCount = 0};
         pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
+
+        vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> pipelineCreateInfoChain = {
+           {.stageCount          = 2,
+            .pStages             = shaderStages,
+            .pVertexInputState   = &vertexInputInfo,
+            .pInputAssemblyState = &inputAssembly,
+            .pViewportState      = &viewportState,
+            .pRasterizationState = &rasterizer,
+            .pMultisampleState   = &multisampling,
+            .pColorBlendState    = &colorBlending,
+            .pDynamicState       = &dynamicState,
+            .layout              = pipelineLayout,
+            .renderPass          = nullptr},
+            {.colorAttachmentCount = 1, .pColorAttachmentFormats = &swapChainSurfaceFormat.format}
+        };
+
+        graphicsPipeline = vk::raii::Pipeline(device, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
     }
 
     //* Helper functions
