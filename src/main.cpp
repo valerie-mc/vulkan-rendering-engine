@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 // #include <memory>
+#include <utility>
 #include <stdexcept>
 #include <vector>
 
@@ -45,22 +46,25 @@ class HelloTriangleApplication {
     GLFWwindow *window = nullptr;
 
     vk::raii::Context                context;
-    vk::raii::Instance               instance = nullptr;
-    vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
-    vk::raii::SurfaceKHR             surface = nullptr;
+    vk::raii::Instance               instance         = nullptr;
+    vk::raii::DebugUtilsMessengerEXT debugMessenger   = nullptr;
+    vk::raii::SurfaceKHR             surface          = nullptr;
 
-    vk::raii::PhysicalDevice         physicalDevice = nullptr;
-    vk::raii::Device                 device = nullptr;
-    vk::raii::Queue                  graphicsQueue = nullptr;
+    vk::raii::PhysicalDevice         physicalDevice   = nullptr;
+    vk::raii::Device                 device           = nullptr;
+    uint32_t                         queueIndex       = ~0u; // UINT32_MAX
+    vk::raii::Queue                  graphicsQueue    = nullptr;
 
-    vk::raii::SwapchainKHR           swapChain = nullptr;
+    vk::raii::SwapchainKHR           swapChain        = nullptr;
     std::vector<vk::Image>           swapChainImages;
 	vk::Extent2D                     swapChainExtent;
     vk::SurfaceFormatKHR             swapChainSurfaceFormat;
     std::vector<vk::raii::ImageView> swapChainImageViews;
     
-    vk::raii::PipelineLayout         pipelineLayout = nullptr;
+    vk::raii::PipelineLayout         pipelineLayout   = nullptr;
     vk::raii::Pipeline               graphicsPipeline = nullptr;
+    vk::raii::CommandPool            commandPool      = nullptr;
+    vk::raii::CommandBuffer          commandBuffer    = nullptr;
 
     // Used to determine if a GPU has our required extensions
     std::vector<const char*> requiredDeviceExtension = {
@@ -86,6 +90,8 @@ class HelloTriangleApplication {
         createSwapChain();
         createImageViews();
         createGraphicsPipeline();
+        createCommandPool();
+        createCommandBuffer();
     }
     
     void mainLoop() {
@@ -177,7 +183,6 @@ class HelloTriangleApplication {
         // Find the index of the first queue family that supports graphics
         std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
 
-        uint32_t queueIndex = ~0u; // UINT32_MAX
         for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); ++qfpIndex) {
             if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
                     physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface)) {
@@ -353,6 +358,40 @@ class HelloTriangleApplication {
         graphicsPipeline = vk::raii::Pipeline(device, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
     }
 
+    void createCommandPool() {
+        vk::CommandPoolCreateInfo poolInfo {
+            .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+            .queueFamilyIndex = queueIndex
+        };
+
+        commandPool = vk::raii::CommandPool(device, poolInfo);
+    }
+
+    void createCommandBuffer() {
+        vk::CommandBufferAllocateInfo allocInfo {
+            .commandPool = commandPool,
+            .level = vk::CommandBufferLevel::ePrimary,
+            .commandBufferCount = 1,
+        };
+
+        commandBuffer = std::move(vk::raii::CommandBuffers(device, allocInfo).front());
+    }
+
+    void recordCommandBuffer(uint32_t imageIndex) {
+        commandBuffer.begin({});
+
+        // Before starting rendering, transition the swapchain image to vk::ImageLayout::eColorAttachmentOptimal
+        transitionImageLayout(
+            imageIndex,
+            vk::ImageLayout::eUndefined,
+            vk::ImageLayout::eColorAttachmentOptimal,
+            {},                                                        // srcAccessMask (no need to wait for previous operations)
+            vk::AccessFlagBits2::eColorAttachmentWrite,                // dstAccessMask
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput,        // srcStage
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput         // dstStage
+        );
+    }
+
     //* Helper functions
     // Returns a vector of pointers to strings of the required instance extensions.
     std::vector<const char*> getRequiredInstanceExtensions() {
@@ -499,6 +538,40 @@ class HelloTriangleApplication {
 
         vk::raii::ShaderModule shaderModule{device, createInfo};
         return shaderModule;
+    }
+
+    void transitionImageLayout(
+        uint32_t                imageIndex,
+        vk::ImageLayout         old_layout,
+        vk::ImageLayout         new_layout,
+        vk::AccessFlags2        src_access_mask,
+        vk::AccessFlags2        dst_access_mask,
+        vk::PipelineStageFlags2 src_stage_mask,
+        vk::PipelineStageFlags2 dst_stage_mask)
+    {
+		vk::ImageMemoryBarrier2 barrier = {
+		    .srcStageMask        = src_stage_mask,
+		    .srcAccessMask       = src_access_mask,
+		    .dstStageMask        = dst_stage_mask,
+		    .dstAccessMask       = dst_access_mask,
+		    .oldLayout           = old_layout,
+		    .newLayout           = new_layout,
+		    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		    .image               = swapChainImages[imageIndex],
+		    .subresourceRange    = {
+		        .aspectMask     = vk::ImageAspectFlagBits::eColor,
+		        .baseMipLevel   = 0,
+		        .levelCount     = 1,
+		        .baseArrayLayer = 0,
+		        .layerCount     = 1}
+        };
+		vk::DependencyInfo dependency_info = {
+		    .dependencyFlags         = {},
+		    .imageMemoryBarrierCount = 1,
+		    .pImageMemoryBarriers    = &barrier
+        };
+        commandBuffer.pipelineBarrier2(dependency_info);
     }
 
     
