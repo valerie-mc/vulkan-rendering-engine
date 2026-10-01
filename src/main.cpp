@@ -104,6 +104,8 @@ class HelloTriangleApplication {
             glfwPollEvents();
             drawFrame();
         }
+
+        device.waitIdle();
     }
 
     void cleanup() {
