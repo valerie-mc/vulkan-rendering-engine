@@ -52,8 +52,8 @@ class HelloTriangleApplication {
 
     vk::raii::PhysicalDevice         physicalDevice   = nullptr;
     vk::raii::Device                 device           = nullptr;
-    uint32_t                         queueIndex       = ~0u; // UINT32_MAX
-    vk::raii::Queue                  graphicsQueue    = nullptr;
+    uint32_t                         queueIndex       = UINT32_MAX;
+    vk::raii::Queue                  queue            = nullptr;
 
     vk::raii::SwapchainKHR           swapChain        = nullptr;
     std::vector<vk::Image>           swapChainImages;
@@ -65,6 +65,10 @@ class HelloTriangleApplication {
     vk::raii::Pipeline               graphicsPipeline = nullptr;
     vk::raii::CommandPool            commandPool      = nullptr;
     vk::raii::CommandBuffer          commandBuffer    = nullptr;
+
+    vk::raii::Semaphore      presentCompleteSemaphore = nullptr;
+    vk::raii::Semaphore      renderFinishedSemaphore  = nullptr;
+    vk::raii::Fence          drawFence                = nullptr;
 
     // Used to determine if a GPU has our required extensions
     std::vector<const char*> requiredDeviceExtension = {
@@ -92,17 +96,18 @@ class HelloTriangleApplication {
         createGraphicsPipeline();
         createCommandPool();
         createCommandBuffer();
+        createSyncObjects();
     }
     
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+            drawFrame();
         }
     }
 
     void cleanup() {
         glfwDestroyWindow(window);
-
         glfwTerminate();
     }
 
@@ -192,7 +197,7 @@ class HelloTriangleApplication {
             }
         }
 
-        if (queueIndex == ~0u) {
+        if (queueIndex == UINT32_MAX) {
             throw std::runtime_error("Could not find a queue for graphics and present -> terminating");
         }
 
@@ -227,7 +232,7 @@ class HelloTriangleApplication {
         };
 
         device = vk::raii::Device(physicalDevice, deviceCreateInfo);
-        graphicsQueue = vk::raii::Queue(device, queueIndex, 0);
+        queue = vk::raii::Queue(device, queueIndex, 0);
     }
 
     void createSwapChain() {
@@ -385,11 +390,85 @@ class HelloTriangleApplication {
             imageIndex,
             vk::ImageLayout::eUndefined,
             vk::ImageLayout::eColorAttachmentOptimal,
-            {},                                                        // srcAccessMask (no need to wait for previous operations)
-            vk::AccessFlagBits2::eColorAttachmentWrite,                // dstAccessMask
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,        // srcStage
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput         // dstStage
+            {},                                                 // srcAccessMask (no need to wait for previous operations)
+            vk::AccessFlagBits2::eColorAttachmentWrite,         // dstAccessMask
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput, // srcStage
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput  // dstStage
         );
+
+        vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+        vk::RenderingAttachmentInfo attachmentInfo = {
+            .imageView   = swapChainImageViews[imageIndex],
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp      = vk::AttachmentLoadOp::eClear,
+            .storeOp     = vk::AttachmentStoreOp::eStore,
+            .clearValue  = clearColor,
+        };
+
+        vk::RenderingInfo renderingInfo = {
+            .renderArea           = {.offset = {0, 0}, .extent = swapChainExtent},
+            .layerCount           = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments    = &attachmentInfo,
+        };
+
+        commandBuffer.beginRendering(renderingInfo);
+        commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
+
+        // These were marked as dynamic in `createGraphicsPipeline` so we have to specify them now
+        commandBuffer.setViewport(
+            0, 
+            vk::Viewport(
+                0.0f, 0.0f, 
+                static_cast<float>(swapChainExtent.width), static_cast<float>(swapChainExtent.height), 
+                0.0f, 1.0f)
+        );
+        commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
+
+        commandBuffer.draw(3, 1, 0, 0);
+        commandBuffer.endRendering();
+
+        commandBuffer.end();
+    }
+
+    void createSyncObjects() {
+        presentCompleteSemaphore = vk::raii::Semaphore(device, vk::SemaphoreCreateInfo());
+        renderFinishedSemaphore  = vk::raii::Semaphore(device, vk::SemaphoreCreateInfo());
+        drawFence                = vk::raii::Fence(device, {.flags = vk::FenceCreateFlagBits::eSignaled});
+    }
+
+    void drawFrame() {
+        vk::Result fenceResult = device.waitForFences(*drawFence, vk::True, UINT64_MAX);
+		if (fenceResult != vk::Result::eSuccess) {
+			throw std::runtime_error("failed to wait for fence!");
+		}
+		device.resetFences(*drawFence);
+
+        auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphore, nullptr);
+        recordCommandBuffer(imageIndex);
+
+        vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+        const vk::SubmitInfo submitInfo {
+            .waitSemaphoreCount   = 1,
+            .pWaitSemaphores      = &*presentCompleteSemaphore,
+            .pWaitDstStageMask    = &waitDestinationStageMask,
+            .commandBufferCount   = 1,
+            .pCommandBuffers      = &*commandBuffer,
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores    = &*renderFinishedSemaphore,
+        };
+
+        queue.submit(submitInfo, *drawFence);
+
+        const vk::PresentInfoKHR presentInfoKHR{
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores    = &*renderFinishedSemaphore,
+            .swapchainCount     = 1,
+            .pSwapchains        = &*swapChain,
+            .pImageIndices      = &imageIndex,
+        };
+
+        result = queue.presentKHR(presentInfoKHR);
     }
 
     //* Helper functions
@@ -490,7 +569,7 @@ class HelloTriangleApplication {
         // currentExtent is only set to the special "undefined" value described above
         // when the window manager lets us choose the extent ourselves; any other value
         // means the surface already dictates a fixed extent that we must use as-is.
-        if (capabilities.currentExtent.width != ~0u) {
+        if (capabilities.currentExtent.width != UINT32_MAX) {
             return capabilities.currentExtent;
         }
         
@@ -540,6 +619,7 @@ class HelloTriangleApplication {
         return shaderModule;
     }
 
+    // Has side effects on the command buffer
     void transitionImageLayout(
         uint32_t                imageIndex,
         vk::ImageLayout         old_layout,
