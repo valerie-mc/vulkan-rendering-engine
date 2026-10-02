@@ -432,7 +432,7 @@ class HelloTriangleApplication {
         );
         commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
 
-        commandBuffer.draw(3, 1, 0, 0);
+        commandBuffer.draw(6, 1, 0, 0);
         commandBuffer.endRendering();
 
 		// After rendering, transition the swapchain image to vk::ImageLayout::ePresentSrcKHR
