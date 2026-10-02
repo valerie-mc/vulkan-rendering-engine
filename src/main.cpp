@@ -1,3 +1,5 @@
+// FEATURES - SYNC
+
 #include <algorithm>
 #include <assert.h>
 #include <cstdlib>
@@ -220,10 +222,10 @@ class HelloTriangleApplication {
                         vk::PhysicalDeviceVulkan13Features,
                         vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
             featureChain = {
-                {},                             // vk::PhysicalDeviceFeatures2 (empty for now)
-                {.shaderDrawParameters = true}, // Enable shader draw parameters from Vulkan 1.1
-                {.dynamicRendering = true},     // Enable dynamic rendering from Vulkan 1.3
-                {.extendedDynamicState = true}, // Enable extended dynamic state from the extension
+                {},                                                   // vk::PhysicalDeviceFeatures2
+                {.shaderDrawParameters = true},                       // vk::PhysicalDeviceVulkan11Features
+                {.synchronization2 = true, .dynamicRendering = true}, // vk::PhysicalDeviceVulkan13Features1.3
+                {.extendedDynamicState = true},                       // vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
             };
 
         vk::DeviceCreateInfo deviceCreateInfo {
@@ -431,6 +433,17 @@ class HelloTriangleApplication {
         commandBuffer.draw(3, 1, 0, 0);
         commandBuffer.endRendering();
 
+		// After rendering, transition the swapchain image to vk::ImageLayout::ePresentSrcKHR
+		transitionImageLayout(
+		    imageIndex,
+		    vk::ImageLayout::eColorAttachmentOptimal,
+		    vk::ImageLayout::ePresentSrcKHR,
+		    vk::AccessFlagBits2::eColorAttachmentWrite,                // srcAccessMask
+		    {},                                                        // dstAccessMask
+		    vk::PipelineStageFlagBits2::eColorAttachmentOutput,        // srcStage
+		    vk::PipelineStageFlagBits2::eBottomOfPipe                  // dstStage
+		);
+
         commandBuffer.end();
     }
 
@@ -449,6 +462,8 @@ class HelloTriangleApplication {
 
         auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphore, nullptr);
         recordCommandBuffer(imageIndex);
+
+        queue.waitIdle();
 
         vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
         const vk::SubmitInfo submitInfo {
@@ -562,6 +577,7 @@ class HelloTriangleApplication {
         bool supportsRequiredFeatures = 
             features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
             features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
+            features.template get<vk::PhysicalDeviceVulkan13Features>().synchronization2 &&
             features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
 
         // Return true if the physicalDevice meets all the criteria

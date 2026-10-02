@@ -82,7 +82,7 @@ find_program(SLANGC_EXECUTABLE slangc HINTS $ENV{VULKAN_SDK}/bin REQUIRED)
 
 set(ENGINE_DIR ${CMAKE_BINARY_DIR}/${ENGINE_NAME})
 
-add_executable (${ENGINE_NAME} 15_hello_triangle.cpp)
+add_executable (${ENGINE_NAME} main.cpp)
 set_target_properties (${ENGINE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${ENGINE_DIR})
 set_target_properties (${ENGINE_NAME} PROPERTIES CXX_STANDARD 20)
 target_link_libraries (${ENGINE_NAME} Vulkan::cppm glfw)
