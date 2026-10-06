@@ -36,7 +36,7 @@ constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
-class HelloTriangleApplication {
+class VulkanApplication {
   public:
     void run() {
         initWindow();
@@ -73,6 +73,7 @@ class HelloTriangleApplication {
     std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
     std::vector<vk::raii::Fence>     inFlightFences;
     uint32_t                         frameIndex = 0;
+    bool                             framebufferResized = false;
 
     // Used to determine if a GPU has our required extensions
     std::vector<const char*> requiredDeviceExtension = {
@@ -84,9 +85,11 @@ class HelloTriangleApplication {
         glfwInit();
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // Disable resizing for now
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+        glfwSetWindowUserPointer(window, this);
+        glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     }
 
     void initVulkan() {
@@ -113,6 +116,8 @@ class HelloTriangleApplication {
     }
 
     void cleanup() {
+        cleanupSwapChain();
+
         glfwDestroyWindow(window);
         glfwTerminate();
     }
@@ -469,9 +474,20 @@ class HelloTriangleApplication {
 		if (fenceResult != vk::Result::eSuccess) {
 			throw std::runtime_error("failed to wait for fence!");
 		}
-		device.resetFences(*inFlightFences[frameIndex]);
 
         auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
+
+        if (result == vk::Result::eErrorOutOfDateKHR) {
+            recreateSwapChain();
+            return;
+        }
+        if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
+            assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
+            throw std::runtime_error("failed to acquire swap chain image!");
+        }
+
+        // Only reset the fence if we are submitting work
+        device.resetFences(*inFlightFences[frameIndex]);
 
 		commandBuffers[frameIndex].reset();
 		recordCommandBuffer(imageIndex);
@@ -497,15 +513,17 @@ class HelloTriangleApplication {
         };
 		result = queue.presentKHR(presentInfoKHR);
 
-		switch (result) {
-			case vk::Result::eSuccess:
-				break;
-			case vk::Result::eSuboptimalKHR:
-				std::cout << "vk::Queue::presentKHR returned vk::Result::eSuboptimalKHR !\n";
-				break;
-			default:
-				break;        // an unexpected result is returned!
-		}
+        if ((result == vk::Result::eSuboptimalKHR) || 
+            (result == vk::Result::eErrorOutOfDateKHR) ||
+            framebufferResized)
+        {
+            framebufferResized = false;
+            recreateSwapChain();
+        } else {
+            // There are no other success codes than eSuccess;
+            // on any error code, presentKHR already threw an exception.
+            assert(result == vk::Result::eSuccess);
+        }
 
         // Advance frameIndex
 		frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
@@ -695,6 +713,31 @@ class HelloTriangleApplication {
         commandBuffers[frameIndex].pipelineBarrier2(dependency_info);
     }
 
+    void recreateSwapChain() {
+        // TODO: This handles minimization, but idk if I really want a busy loop for that
+        int width = 0, height = 0;
+        glfwGetFramebufferSize(window, &width, &height);
+        while ((width == 0 || height == 0) && !glfwWindowShouldClose(window)) {
+            glfwGetFramebufferSize(window, &width, &height);
+            glfwWaitEvents();
+        }
+        if (glfwWindowShouldClose(window)) {
+            return;
+        }
+
+        device.waitIdle();
+
+        cleanupSwapChain();
+
+        createSwapChain();
+        createImageViews();
+    }
+
+    void cleanupSwapChain() {
+        swapChainImageViews.clear();
+        swapChain = nullptr;
+    }
+
     
     static std::vector<char> readFile(const std::string& filename) {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -711,6 +754,11 @@ class HelloTriangleApplication {
         file.close();
 
         return buffer;
+    }
+
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+        auto app = reinterpret_cast<VulkanApplication*>(glfwGetWindowUserPointer(window));
+        app->framebufferResized = true;
     }
 
     // Debug callback fn for validation layers.
@@ -736,7 +784,7 @@ class HelloTriangleApplication {
 
 int main() {
     try {
-        HelloTriangleApplication app;
+        VulkanApplication app;
         app.run();
     }
     catch (const std::exception& e) {
