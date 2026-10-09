@@ -81,3 +81,6 @@ clean_build.bat
 build.sh
 execute.sh
 clean_build.sh
+
+# cmake find_package files
+CMake/
