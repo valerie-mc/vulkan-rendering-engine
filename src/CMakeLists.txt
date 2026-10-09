@@ -6,9 +6,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set (ENGINE_NAME "VulkanEngine")
+set(ENGINE_NAME "VulkanEngine")
 
-project (${ENGINE_NAME})
+project(${ENGINE_NAME})
 
 # Add option to enable/disable C++ 20 module
 option(ENABLE_CPP20_MODULE "Enable C++ 20 module support for Vulkan" OFF)
@@ -127,45 +127,3 @@ set (SHADER_TARGET ${ENGINE_NAME}Shaders)
 set (SHADER_SLANG_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader.slang")
 add_slang_shader_target(${SHADER_TARGET} SOURCES ${SHADER_SLANG_SOURCES})
 add_dependencies(${ENGINE_NAME} ${SHADER_TARGET})
-
-# Slang shader (default from tutorial, was causing a warning)
-# set (SHADER_TARGET ${ENGINE_NAME}Shader)
-# set (SHADERS_DIR ${ENGINE_DIR}/shaders)
-# set (SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shader.slang")
-# set (ENTRY_POINTS -entry vertMain -entry fragMain)
-# add_custom_command(OUTPUT ${SHADERS_DIR} COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_DIR})
-# add_custom_command(
-#   OUTPUT  ${SHADERS_DIR}/slang.spv
-#   COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o ${ENGINE_DIR}/shaders/slang.spv
-#   WORKING_DIRECTORY ${SHADERS_DIR}
-#   DEPENDS ${SHADERS_DIR} ${SHADER_SOURCES}
-#   COMMENT "Compiling Slang Shaders"
-#   VERBATIM
-# )
-# add_custom_target(${SHADER_TARGET} DEPENDS ${SHADERS_DIR}/slang.spv)
-# add_dependencies(${ENGINE_NAME} ${SHADER_TARGET})
-
-# Assets
-#set (ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../assets/")
-#file (COPY ${ASSET_DIR}/viking_room.obj DESTINATION ${ENGINE_DIR}/models)
-#file (COPY ${ASSET_DIR}/viking_room.png DESTINATION ${ENGINE_DIR}/textures)
-
-
-# Slang shader 
-# set (SHADER_TARGET ${ENGINE_NAME}Shader)
-# set (SHADERS_DIR ${ENGINE_DIR}/shaders)
-# set (SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader.slang") # Dir for "shader.slang"
-# set (ENTRY_POINTS -entry vertMain -entry fragMain)
-
-# file(MAKE_DIRECTORY ${SHADERS_DIR})
-
-# add_custom_command(
-#   OUTPUT  ${SHADERS_DIR}/slang.spv
-#   COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o ${ENGINE_DIR}/shaders/slang.spv
-#   WORKING_DIRECTORY ${SHADERS_DIR}
-#   DEPENDS ${SHADER_SOURCES}
-#   COMMENT "Compiling Slang Shaders"
-#   VERBATIM
-# )
-# add_custom_target(${SHADER_TARGET} DEPENDS ${SHADERS_DIR}/slang.spv)
-# add_dependencies(${ENGINE_NAME} ${SHADER_TARGET})
