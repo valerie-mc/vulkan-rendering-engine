@@ -1,5 +1,3 @@
-// FEATURES - SYNC
-
 #include <algorithm>
 #include <assert.h>
 #include <cstdlib>
