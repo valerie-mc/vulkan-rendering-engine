@@ -420,29 +420,18 @@ class VulkanApplication {
     }
 
     void createVertexBuffer() {
-        vk::BufferCreateInfo bufferInfo {
-            .size        = sizeof(vertices[0]) * vertices.size(),
-            .usage       = vk::BufferUsageFlagBits::eVertexBuffer,
-            .sharingMode = vk::SharingMode::eExclusive,
-        };
+        vk::DeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
-        vertexBuffer = vk::raii::Buffer(device, bufferInfo);
-        vk::MemoryRequirements memRequirements = vertexBuffer.getMemoryRequirements();
-
-        vk::MemoryAllocateInfo memoryAllocateInfo {
-            .allocationSize  = memRequirements.size,
-            .memoryTypeIndex = findMemoryType(
-                memRequirements.memoryTypeBits, 
+        auto [stagingBuffer, stagingBufferMemory] = 
+            createBuffer(
+                bufferSize,
+                vk::BufferUsageFlagBits::eTransferSrc,
                 vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
-            )
-        };
+            );
 
-        vertexBufferMemory = vk::raii::DeviceMemory(device, memoryAllocateInfo);
-        vertexBuffer.bindMemory(*vertexBufferMemory, 0);
-
-        void* data = vertexBufferMemory.mapMemory(0, bufferInfo.size);
-        memcpy(data, vertices.data(), bufferInfo.size);
-        vertexBufferMemory.unmapMemory();
+        void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+        memcpy(dataStaging, vertices.data(), bufferSize);
+        stagingBufferMemory.unmapMemory();
     }
 
     void createCommandBuffers() {
@@ -740,6 +729,31 @@ class VulkanApplication {
 
         vk::raii::ShaderModule shaderModule{device, createInfo};
         return shaderModule;
+    }
+
+    // Helper function for creating vertex buffers
+    std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> createBuffer(
+        vk::DeviceSize size,
+        vk::BufferUsageFlags usage,
+        vk::MemoryPropertyFlags properties
+    ) {
+        vk::BufferCreateInfo bufferInfo {
+            .size = size,
+            .usage = usage,
+            .sharingMode = vk::SharingMode::eExclusive,
+        };
+        vk::raii::Buffer buffer = vk::raii::Buffer(device, bufferInfo);
+
+        vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
+        vk::MemoryAllocateInfo allocInfo {
+            .allocationSize = memRequirements.size,
+            .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties)
+        };
+
+        vk::raii::DeviceMemory bufferMemory = vk::raii::DeviceMemory(device, allocInfo);
+        buffer.bindMemory(*bufferMemory, 0);
+
+        return {std::move(buffer), std::move(bufferMemory)};
     }
 
     // Finds the best memory type for the vertex buffer
