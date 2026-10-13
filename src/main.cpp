@@ -422,6 +422,7 @@ class VulkanApplication {
     void createVertexBuffer() {
         vk::DeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
+        // Init staging buffer
         auto [stagingBuffer, stagingBufferMemory] = 
             createBuffer(
                 bufferSize,
@@ -432,6 +433,16 @@ class VulkanApplication {
         void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
         memcpy(dataStaging, vertices.data(), bufferSize);
         stagingBufferMemory.unmapMemory();
+
+        // Init vertex buffer
+        std::tie(vertexBuffer, vertexBufferMemory) =
+            createBuffer(
+                bufferSize,
+                vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
+                vk::MemoryPropertyFlagBits::eDeviceLocal
+            );
+
+        copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
     }
 
     void createCommandBuffers() {
@@ -731,7 +742,7 @@ class VulkanApplication {
         return shaderModule;
     }
 
-    // Helper function for creating vertex buffers
+    // Helper function for creating buffers (specifically vertex buffers for now)
     std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> createBuffer(
         vk::DeviceSize size,
         vk::BufferUsageFlags usage,
@@ -747,7 +758,7 @@ class VulkanApplication {
         vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
         vk::MemoryAllocateInfo allocInfo {
             .allocationSize = memRequirements.size,
-            .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties)
+            .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties),
         };
 
         vk::raii::DeviceMemory bufferMemory = vk::raii::DeviceMemory(device, allocInfo);
@@ -756,7 +767,8 @@ class VulkanApplication {
         return {std::move(buffer), std::move(bufferMemory)};
     }
 
-    // Finds the best memory type for the vertex buffer
+    // Finds the best memory type for the vertex buffer.
+    // `properties` are what properties are desired.
     uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) {
         vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
 
@@ -767,6 +779,29 @@ class VulkanApplication {
         }
 
         throw std::runtime_error("failed to find suitable memory type!");
+    }
+
+    // Sets up a one time `CommandBuffer` to copy the srcBuffer into the dstBuffer.
+    // Ensure that the srcBuffer has the flag bits usage `eTransferSrc` and the dstBuffer has `eTransferDst`.
+    void copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer, vk::DeviceSize size) {
+        vk::CommandBufferAllocateInfo allocInfo {
+            .commandPool = commandPool,
+            .level = vk::CommandBufferLevel::ePrimary,
+            .commandBufferCount = 1,
+        };
+
+        // TODO: I shouldn't actually call `vk::raii::Device::allocateMemory` for every individual buffer
+        //       See `https://docs.vulkan.org/tutorial/latest/04_Vertex_buffers/02_Staging_buffer.html#_conclusion`
+        vk::raii::CommandBuffer commandCopyBuffer = std::move(device.allocateCommandBuffers(allocInfo).front());
+        
+        commandCopyBuffer.begin({.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+        commandCopyBuffer.copyBuffer(*srcBuffer, *dstBuffer, vk::BufferCopy(0, 0, size));
+        commandCopyBuffer.end();
+
+        queue.submit(vk::SubmitInfo{.commandBufferCount = 1, .pCommandBuffers = &*commandCopyBuffer}, nullptr);
+        // TODO: In the future it might be better to use a fence to "schedule multiple
+        //       transfers simultaneously and wait for all of them complete"
+        queue.waitIdle();
     }
 
     // Has side effects on the command buffer
