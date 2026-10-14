@@ -53,9 +53,14 @@ struct Vertex {
 };
 
 const std::vector<Vertex> vertices = {
-    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+};
+
+const std::vector<uint16_t> indices = {
+    0, 1, 2, 2, 3, 0
 };
 
 
@@ -92,6 +97,8 @@ class VulkanApplication {
 
 	vk::raii::Buffer                 vertexBuffer       = nullptr;
 	vk::raii::DeviceMemory           vertexBufferMemory = nullptr;
+    vk::raii::Buffer                 indexBuffer        = nullptr;
+    vk::raii::DeviceMemory           indexBufferMemory  = nullptr;
 
     vk::raii::CommandPool            commandPool        = nullptr;
     std::vector<vk::raii::CommandBuffer> commandBuffers;
@@ -130,6 +137,7 @@ class VulkanApplication {
         createGraphicsPipeline();
         createCommandPool();
         createVertexBuffer();
+        createIndexBuffer();
         createCommandBuffers();
         createSyncObjects();
     }
@@ -431,7 +439,7 @@ class VulkanApplication {
             );
 
         void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-        memcpy(dataStaging, vertices.data(), bufferSize);
+        memcpy(dataStaging, vertices.data(), (size_t) bufferSize);
         stagingBufferMemory.unmapMemory();
 
         // Init vertex buffer
@@ -443,6 +451,30 @@ class VulkanApplication {
             );
 
         copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+    }
+
+    void createIndexBuffer() {
+        vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+
+		auto [stagingBuffer, stagingBufferMemory] =
+		    createBuffer(
+                bufferSize,
+                vk::BufferUsageFlagBits::eTransferSrc,
+                vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+            );
+
+		void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+		memcpy(dataStaging, indices.data(), (size_t) bufferSize);
+		stagingBufferMemory.unmapMemory();
+
+		std::tie(indexBuffer, indexBufferMemory) =
+		    createBuffer(
+                bufferSize,
+                vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer,
+                vk::MemoryPropertyFlagBits::eDeviceLocal
+            );
+
+		copyBuffer(stagingBuffer, indexBuffer, bufferSize);
     }
 
     void createCommandBuffers() {
@@ -499,8 +531,10 @@ class VulkanApplication {
         );
         commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
 
-        commandBuffer.bindVertexBuffers(0, *vertexBuffer, {0});        
-        commandBuffer.draw(static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+        commandBuffers[frameIndex].bindVertexBuffers(0, *vertexBuffer, {0});
+        commandBuffers[frameIndex].bindIndexBuffer(*indexBuffer, 0, vk::IndexType::eUint16);
+
+        commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
         commandBuffer.endRendering();
 
