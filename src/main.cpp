@@ -52,6 +52,12 @@ struct Vertex {
     }
 };
 
+struct UniformBufferObject {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+};
+
 const std::vector<Vertex> vertices = {
     {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
     {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
@@ -134,6 +140,7 @@ class VulkanApplication {
         createLogicalDevice();
         createSwapChain();
         createImageViews();
+        createDescriptorSetLayout();
         createGraphicsPipeline();
         createCommandPool();
         createVertexBuffer();
@@ -325,6 +332,19 @@ class VulkanApplication {
             imageViewCreateInfo.image = image;
             swapChainImageViews.emplace_back(device, imageViewCreateInfo);
         }
+    }
+
+    // This sets up the information for the Uniform Buffer Objects in the shader
+    // which alow verticies to access global data (such as the model-view-projection matrix) 
+    void createDescriptorSetLayout() {
+		vk::DescriptorSetLayoutBinding uboLayoutBinding {
+		    .binding = 0,
+            .descriptorType = vk::DescriptorType::eUniformBuffer,
+            .descriptorCount = 1,
+            .stageFlags = vk::ShaderStageFlagBits::eVertex,
+        };
+
+        
     }
 
     void createGraphicsPipeline() {
