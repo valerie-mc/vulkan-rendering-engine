@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <assert.h>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -17,6 +18,9 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+
 
 
 // Validation Layers
@@ -94,19 +98,24 @@ class VulkanApplication {
 
     vk::raii::SwapchainKHR           swapChain      = nullptr;
     std::vector<vk::Image>           swapChainImages;
-	vk::Extent2D                     swapChainExtent;
+    vk::Extent2D                     swapChainExtent;
     vk::SurfaceFormatKHR             swapChainSurfaceFormat;
     std::vector<vk::raii::ImageView> swapChainImageViews;
     
-    vk::raii::PipelineLayout         pipelineLayout     = nullptr;
-    vk::raii::Pipeline               graphicsPipeline   = nullptr;
+    vk::raii::DescriptorSetLayout    descriptorSetLayout = nullptr;
+    vk::raii::PipelineLayout         pipelineLayout      = nullptr;
+    vk::raii::Pipeline               graphicsPipeline    = nullptr;
 
-	vk::raii::Buffer                 vertexBuffer       = nullptr;
-	vk::raii::DeviceMemory           vertexBufferMemory = nullptr;
-    vk::raii::Buffer                 indexBuffer        = nullptr;
-    vk::raii::DeviceMemory           indexBufferMemory  = nullptr;
+    vk::raii::Buffer                 vertexBuffer        = nullptr;
+    vk::raii::DeviceMemory           vertexBufferMemory  = nullptr;
+    vk::raii::Buffer                 indexBuffer         = nullptr;
+    vk::raii::DeviceMemory           indexBufferMemory   = nullptr;
 
-    vk::raii::CommandPool            commandPool        = nullptr;
+    std::vector<vk::raii::Buffer>       uniformBuffers;
+	std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
+	std::vector<void*>                  uniformBuffersMapped;
+
+    vk::raii::CommandPool            commandPool         = nullptr;
     std::vector<vk::raii::CommandBuffer> commandBuffers;
 
     std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
@@ -114,6 +123,9 @@ class VulkanApplication {
     std::vector<vk::raii::Fence>     inFlightFences;
     uint32_t                         frameIndex = 0;
     bool                             framebufferResized = false;
+
+
+
 
     // Used to determine if a GPU has our required extensions
     std::vector<const char*> requiredDeviceExtension = {
@@ -145,6 +157,7 @@ class VulkanApplication {
         createCommandPool();
         createVertexBuffer();
         createIndexBuffer();
+        createUniformBuffers();
         createCommandBuffers();
         createSyncObjects();
     }
@@ -290,7 +303,7 @@ class VulkanApplication {
     }
 
     void createSwapChain() {
-        vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR( *surface );
+        vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(*surface);
         swapChainExtent = chooseSwapExtent(surfaceCapabilities);
         uint32_t minImageCount = chooseSwapMinImageCount(surfaceCapabilities);
 
@@ -298,7 +311,7 @@ class VulkanApplication {
         swapChainSurfaceFormat = chooseSwapSurfaceFormat(availableFormats);
         
         std::vector<vk::PresentModeKHR> availablePresentModes = physicalDevice.getSurfacePresentModesKHR(*surface);
-		vk::PresentModeKHR presentMode = chooseSwapPresentMode(availablePresentModes);
+        vk::PresentModeKHR presentMode = chooseSwapPresentMode(availablePresentModes);
 
         vk::SwapchainCreateInfoKHR swapChainCreateInfo {
             .surface          = *surface,
@@ -316,7 +329,7 @@ class VulkanApplication {
         };
 
         swapChain = vk::raii::SwapchainKHR(device, swapChainCreateInfo);
-		swapChainImages = swapChain.getImages();
+        swapChainImages = swapChain.getImages();
     }
 
     void createImageViews() {
@@ -337,14 +350,25 @@ class VulkanApplication {
     // This sets up the information for the Uniform Buffer Objects in the shader
     // which alow verticies to access global data (such as the model-view-projection matrix) 
     void createDescriptorSetLayout() {
-		vk::DescriptorSetLayoutBinding uboLayoutBinding {
-		    .binding = 0,
+        vk::DescriptorSetLayoutBinding uboLayoutBinding {
+            .binding = 0,
             .descriptorType = vk::DescriptorType::eUniformBuffer,
             .descriptorCount = 1,
             .stageFlags = vk::ShaderStageFlagBits::eVertex,
         };
 
-        
+        vk::DescriptorSetLayoutCreateInfo layoutInfo {
+            .bindingCount = 1, 
+            .pBindings = &uboLayoutBinding,
+        };
+
+        descriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
+
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo {
+            .setLayoutCount = 1,
+            .pSetLayouts = &*descriptorSetLayout,
+            .pushConstantRangeCount = 0,
+        };
     }
 
     void createGraphicsPipeline() {
@@ -398,20 +422,20 @@ class VulkanApplication {
         };
 
         vk::PipelineColorBlendAttachmentState colorBlendAttachment {
-		    .blendEnable    = vk::False,
-		    .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | 
+            .blendEnable    = vk::False,
+            .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | 
                               vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
         };
 
-		vk::PipelineColorBlendStateCreateInfo colorBlending {
-		    .logicOpEnable = vk::False,
+        vk::PipelineColorBlendStateCreateInfo colorBlending {
+            .logicOpEnable = vk::False,
             .logicOp = vk::LogicOp::eCopy,
             .attachmentCount = 1,
             .pAttachments = &colorBlendAttachment,
         };
 
-		std::vector<vk::DynamicState> dynamicStates = {vk::DynamicState::eViewport, vk::DynamicState::eScissor};
-		vk::PipelineDynamicStateCreateInfo dynamicState {
+        std::vector<vk::DynamicState> dynamicStates = {vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+        vk::PipelineDynamicStateCreateInfo dynamicState {
             .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
             .pDynamicStates = dynamicStates.data()
         };
@@ -476,25 +500,41 @@ class VulkanApplication {
     void createIndexBuffer() {
         vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
 
-		auto [stagingBuffer, stagingBufferMemory] =
-		    createBuffer(
+        auto [stagingBuffer, stagingBufferMemory] =
+            createBuffer(
                 bufferSize,
                 vk::BufferUsageFlagBits::eTransferSrc,
                 vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
             );
 
-		void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-		memcpy(dataStaging, indices.data(), (size_t) bufferSize);
-		stagingBufferMemory.unmapMemory();
+        void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+        memcpy(dataStaging, indices.data(), (size_t) bufferSize);
+        stagingBufferMemory.unmapMemory();
 
-		std::tie(indexBuffer, indexBufferMemory) =
-		    createBuffer(
+        std::tie(indexBuffer, indexBufferMemory) =
+            createBuffer(
                 bufferSize,
                 vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer,
                 vk::MemoryPropertyFlagBits::eDeviceLocal
             );
 
-		copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+        copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+    }
+
+    void createUniformBuffers() {
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
+            auto [buffer, bufferMem] = 
+                createBuffer(
+                    bufferSize,
+                    vk::BufferUsageFlagBits::eUniformBuffer,
+                    vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+                );
+
+            uniformBuffers.emplace_back(std::move(buffer));
+            uniformBuffersMemory.emplace_back(std::move(bufferMem));
+            uniformBuffersMapped.emplace_back(uniformBuffersMemory.back().mapMemory(0, bufferSize));
+        }
     }
 
     void createCommandBuffers() {
@@ -541,12 +581,14 @@ class VulkanApplication {
         commandBuffer.beginRendering(renderingInfo);
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
 
-        // These were marked as dynamic in `createGraphicsPipeline` so we have to specify them now
+        // These were marked as dynamic in `createGraphicsPipeline` so we have to specify them now.
+        // The height is set as negative because glm was built for OpenGL 
+        // which has an inverted y-axis when compared to Vulkan.
         commandBuffer.setViewport(
             0, 
             vk::Viewport(
                 0.0f, 0.0f, 
-                static_cast<float>(swapChainExtent.width), static_cast<float>(swapChainExtent.height), 
+                static_cast<float>(swapChainExtent.width), -static_cast<float>(swapChainExtent.height), 
                 0.0f, 1.0f)
         );
         commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
@@ -558,40 +600,40 @@ class VulkanApplication {
 
         commandBuffer.endRendering();
 
-		// After rendering, transition the swapchain image to vk::ImageLayout::ePresentSrcKHR
-		transitionImageLayout(
-		    imageIndex,
-		    vk::ImageLayout::eColorAttachmentOptimal,
-		    vk::ImageLayout::ePresentSrcKHR,
-		    vk::AccessFlagBits2::eColorAttachmentWrite,                // srcAccessMask
-		    {},                                                        // dstAccessMask
-		    vk::PipelineStageFlagBits2::eColorAttachmentOutput,        // srcStage
-		    vk::PipelineStageFlagBits2::eBottomOfPipe                  // dstStage
-		);
+        // After rendering, transition the swapchain image to vk::ImageLayout::ePresentSrcKHR
+        transitionImageLayout(
+            imageIndex,
+            vk::ImageLayout::eColorAttachmentOptimal,
+            vk::ImageLayout::ePresentSrcKHR,
+            vk::AccessFlagBits2::eColorAttachmentWrite,                // srcAccessMask
+            {},                                                        // dstAccessMask
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput,        // srcStage
+            vk::PipelineStageFlagBits2::eBottomOfPipe                  // dstStage
+        );
 
         commandBuffer.end();
     }
 
     void createSyncObjects() {
-		assert(presentCompleteSemaphores.empty() && renderFinishedSemaphores.empty() && inFlightFences.empty());
+        assert(presentCompleteSemaphores.empty() && renderFinishedSemaphores.empty() && inFlightFences.empty());
 
-		for (size_t i = 0; i < swapChainImages.size(); i++) {
-			renderFinishedSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
-		}
+        for (size_t i = 0; i < swapChainImages.size(); ++i) {
+            renderFinishedSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
+        }
 
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			presentCompleteSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
-			inFlightFences.emplace_back(device, vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled});
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            presentCompleteSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
+            inFlightFences.emplace_back(device, vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled});
         }
     }
 
     void drawFrame() {
         // Note: inFlightFences, presentCompleteSemaphores, and commandBuffers are indexed by frameIndex,
-		//       while renderFinishedSemaphores is indexed by imageIndex
+        //       while renderFinishedSemaphores is indexed by imageIndex
         vk::Result fenceResult = device.waitForFences(*inFlightFences[frameIndex], vk::True, UINT64_MAX);
-		if (fenceResult != vk::Result::eSuccess) {
-			throw std::runtime_error("failed to wait for fence!");
-		}
+        if (fenceResult != vk::Result::eSuccess) {
+            throw std::runtime_error("failed to wait for fence!");
+        }
 
         auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
 
@@ -607,11 +649,13 @@ class VulkanApplication {
         // Only reset the fence if we are submitting work
         device.resetFences(*inFlightFences[frameIndex]);
 
-		commandBuffers[frameIndex].reset();
-		recordCommandBuffer(imageIndex);
+        commandBuffers[frameIndex].reset();
+        recordCommandBuffer(imageIndex);
 
-		vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
-		const vk::SubmitInfo   submitInfo {
+        updateUniformBuffer(frameIndex);
+
+        vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+        const vk::SubmitInfo submitInfo {
             .waitSemaphoreCount   = 1,
             .pWaitSemaphores      = &*presentCompleteSemaphores[frameIndex],
             .pWaitDstStageMask    = &waitDestinationStageMask,
@@ -620,16 +664,16 @@ class VulkanApplication {
             .signalSemaphoreCount = 1,
             .pSignalSemaphores    = &*renderFinishedSemaphores[imageIndex]
         };
-		queue.submit(submitInfo, *inFlightFences[frameIndex]);
+        queue.submit(submitInfo, *inFlightFences[frameIndex]);
 
-		const vk::PresentInfoKHR presentInfoKHR {
+        const vk::PresentInfoKHR presentInfoKHR {
             .waitSemaphoreCount = 1,
             .pWaitSemaphores    = &*renderFinishedSemaphores[imageIndex],
             .swapchainCount     = 1,
             .pSwapchains        = &*swapChain,
             .pImageIndices      = &imageIndex
         };
-		result = queue.presentKHR(presentInfoKHR);
+        result = queue.presentKHR(presentInfoKHR);
 
         if ((result == vk::Result::eSuboptimalKHR) || 
             (result == vk::Result::eErrorOutOfDateKHR) ||
@@ -644,7 +688,7 @@ class VulkanApplication {
         }
 
         // Advance frameIndex
-		frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
+        frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
     //* Helper functions
@@ -826,7 +870,7 @@ class VulkanApplication {
     uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) {
         vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
 
-        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; ++i) {
             if (typeFilter & (1 << i) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
                 return i;
             }
@@ -868,27 +912,27 @@ class VulkanApplication {
         vk::PipelineStageFlags2 src_stage_mask,
         vk::PipelineStageFlags2 dst_stage_mask)
     {
-		vk::ImageMemoryBarrier2 barrier = {
-		    .srcStageMask        = src_stage_mask,
-		    .srcAccessMask       = src_access_mask,
-		    .dstStageMask        = dst_stage_mask,
-		    .dstAccessMask       = dst_access_mask,
-		    .oldLayout           = old_layout,
-		    .newLayout           = new_layout,
-		    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		    .image               = swapChainImages[imageIndex],
-		    .subresourceRange    = {
-		        .aspectMask     = vk::ImageAspectFlagBits::eColor,
-		        .baseMipLevel   = 0,
-		        .levelCount     = 1,
-		        .baseArrayLayer = 0,
-		        .layerCount     = 1}
+        vk::ImageMemoryBarrier2 barrier = {
+            .srcStageMask        = src_stage_mask,
+            .srcAccessMask       = src_access_mask,
+            .dstStageMask        = dst_stage_mask,
+            .dstAccessMask       = dst_access_mask,
+            .oldLayout           = old_layout,
+            .newLayout           = new_layout,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image               = swapChainImages[imageIndex],
+            .subresourceRange    = {
+                .aspectMask     = vk::ImageAspectFlagBits::eColor,
+                .baseMipLevel   = 0,
+                .levelCount     = 1,
+                .baseArrayLayer = 0,
+                .layerCount     = 1}
         };
-		vk::DependencyInfo dependency_info = {
-		    .dependencyFlags         = {},
-		    .imageMemoryBarrierCount = 1,
-		    .pImageMemoryBarriers    = &barrier
+        vk::DependencyInfo dependency_info = {
+            .dependencyFlags         = {},
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers    = &barrier
         };
         commandBuffers[frameIndex].pipelineBarrier2(dependency_info);
     }
@@ -916,6 +960,24 @@ class VulkanApplication {
     void cleanupSwapChain() {
         swapChainImageViews.clear();
         swapChain = nullptr;
+    }
+
+    void updateUniformBuffer(uint32_t currentImage) {
+        static auto startTime = std::chrono::high_resolution_clock::now();
+
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+        UniformBufferObject ubo {};
+        ubo.model = rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.proj = glm::perspective(
+            glm::radians(45.0f),
+            static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height),
+            0.1f, 10.0f
+        );
+
+        memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
     }
 
     
